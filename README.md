@@ -1,7 +1,6 @@
 # oci-get-vnics
 
-oci-get-vnics enables you to retrieve the unique identifiers (OCIDs) of the VNICs
-that are associated with a Virtual Cloud Network (VCN) on Oracle Cloud Infrastructure (OCI).
+oci-get-vnics enables you to retrieve the unique identifiers (OCIDs) of each VNIC and its associated compute instance, which are associated with a user-specified Virtual Cloud Network (VCN) on Oracle Cloud Infrastructure (OCI).
 
 You can specify multiple VCNs, multiple Compartments, and multiple Regions in your search.
 

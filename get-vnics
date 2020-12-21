@@ -23,6 +23,7 @@ color_blue="\033[0;34m"
 color_magenta="\033[0;35m"
 color_cyan="\033[0;36m"
 color_light_gray="\033[0;37m"
+color_dark_gray="\033[0;90m"
 
 tab="   "
 str_message="" # string for messages
@@ -66,8 +67,9 @@ show_options() {
 local options_str=""
 options_str=$(cat <<- 'EOF'
 
-oci-get-vnics enables you to retrieve the unique identifiers (OCIDs) of the VNICs
-that are associated with a Virtual Cloud Network (VCN) on Oracle Cloud Infrastructure (OCI).
+oci-get-vnics enables you to retrieve the unique identifiers (OCIDs) of each VNIC and its
+associated compute instance, which are associated with a user-specified
+Virtual Cloud Network (VCN) on Oracle Cloud Infrastructure (OCI).
 
 You can specify multiple VCNs, multiple Compartments, and multiple Regions in your search.
 
@@ -248,34 +250,36 @@ fi
 # compartment
 for compartment_ocid in "${array_compartment_ocids[@]}"; do
 	str_message_build+=$(cat <<- EOF
-	\n${tab}${color_magenta}compartment:       ${compartment_ocid}
+	\n${color_magenta}compartment:${tab}${compartment_ocid}
 	EOF
 	)
 	# region
 	for region in "${array_regions[@]}"; do
 		str_message_build+=$(cat <<- EOF
-		\n${tab}${tab}${color_blue}region:         ${region}
+		\n${color_blue}region:${tab}${tab}  ${region}
 		EOF
 		)
 		# vcn
 		for vcn_ocid in "${array_vcn_ocid[@]}"; do
 			str_message_build+=$(cat <<- EOF
-			\n${tab}${tab}${tab}${color_cyan}vcn:         ${vcn_ocid}
+			\n${color_cyan}vcn:${tab}${tab}${tab}  ${vcn_ocid}
 			EOF
 			)
 			export vcn_id=${vcn_ocid}
 			# subnet
 			for subnet_ocid in $(oci network --region ${region} subnet list --compartment-id ${compartment_ocid} | jq '.data[] | select(."vcn-id"==env.vcn_id)'.id | sed 's/"//g'); do
 				str_message_build+=$(cat <<- EOF
-				\n${tab}${tab}${tab}${tab}${color_blue}subnet:   ${subnet_ocid}
+				\n${color_dark_gray}subnet:${tab}${tab}  ${subnet_ocid}
 				EOF
 				)
 				export subnet_id=${subnet_ocid} # set subnet id
 				# get vnics whose subnet is in vcn
-				vnic_ocids+=($(oci compute --region ${region} vnic-attachment list --compartment-id ${compartment_ocid} | jq '.data[] | select(."subnet-id"==env.subnet_id)."vnic-id"' | sed 's/"//g'))
+				vnic_ocids+=($(oci compute --region ${region} vnic-attachment list --compartment-id ${compartment_ocid} | jq '.data[] | select(."subnet-id"==env.subnet_id) | ."vnic-id"' | sed 's/"//g'))
+				instance_ocids+=($(oci compute --region ${region} vnic-attachment list --compartment-id ${compartment_ocid} | jq '.data[] | select(."subnet-id"==env.subnet_id) | ."instance-id"' | sed 's/"//g'))
 				str_message_build+=$(cat <<- EOF
-				\n${tab}${tab}${tab}${tab}${tab}${color_green}vnics:
-				$(for vnic in ${vnic_ocids[@]}; do echo "${tab}${tab}${tab}${tab}${tab}       ${vnic}"; done)
+				\n${tab}${tab}${tab}${tab}${tab}${color_none}vnic:${tab}${tab}${tab}${tab}${tab}${tab}${tab}${tab}${tab}${tab} \
+				${tab}${tab}${tab}${tab}${tab}  ${color_green}instance:${color_none}
+				$(for index in ${!vnic_ocids[@]}; do echo "${tab}${tab}${tab}${tab}${tab}${color_none}${vnic_ocids[${index}]}${tab}${color_green}${instance_ocids[${index}]}"; done)
 				EOF
 				)
 			done
