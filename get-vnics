@@ -1,0 +1,299 @@
+#!/usr/bin/env bash
+
+init_vars() {
+# set variables to environment
+source env.sh
+
+# assign values of environment variables to global variables
+_get_vnics_compartment_id=$(echo ${get_vnics_compartment_id})
+_get_vnics_region=$(echo ${get_vnics_region})
+_get_vnics_vcn_id=$(echo ${get_vnics_vcn_id})
+
+array_env_vars=(${_get_vnics_compartment_id} \
+	${_get_vnics_vcn_id} \
+	${_get_vnics_region})
+
+# colors for messages
+color_none="\033[0m"
+color_black="\033[0;30m"
+color_red="\033[0;31m"
+color_green="\033[0;32m"
+color_yellow="\033[0;33m"
+color_blue="\033[0;34m"
+color_magenta="\033[0;35m"
+color_cyan="\033[0;36m"
+color_light_gray="\033[0;37m"
+
+tab="   "
+str_message="" # string for messages
+str_message_build="" # string for messages that gets built upon
+
+array_compartment_ocids=()
+array_oci_regions=()
+array_regions=()
+array_vcn_ocid=()
+}
+
+check_dependencies() {
+# check whether dependencies are installed, error message and exit if not installed
+
+jq --help &> /dev/null;
+if [ $? -ne 0 ]; then
+	str_message=$(cat <<- EOF
+	${color_red}Error:${color_none} Dependency missing: please install jq. You can verify your install with ${color_helpful}jq --help${color_none}.\n
+	Please refer to ${color_helpful}https://stedolan.github.io/jq/download/${color_none} for download instructions.\n
+	EOF
+	)
+	echo -e "${str_message}"
+	exit
+fi
+
+oci &> /dev/null;
+if [ $? -ne 0 ]; then
+	str_message=$(cat <<- EOF
+	\n${color_red}Error:${color_none} Dependency missing: please install oci-cli. You can verify your install with ${color_helpful}oci${color_none}.\n
+	Please refer to ${color_helpful}https://docs.cloud.oracle.com/en-us/iaas/Content/API/SDKDocs/cliinstall.htm${color_none} for download instructions.\n
+	EOF
+	)
+	echo -e "${str_message}"
+	exit
+fi
+}
+
+show_options() {
+# print options, for help or as a result of a user error
+
+local options_str=""
+options_str=$(cat <<- 'EOF'
+
+get-vnics enables you to get the ocids of all vnics
+that are associated with a VCN.
+
+Usage Examples:
+
+# all parameter values come from environment variables defined in ./env.sh
+./get-vnics
+
+# all parameter values are passed in using the command-line flags.
+./get-vnics -cp ${get_vnics_compartment_id} -n ${get_vnics_vcn_id} -r ${get_vnics_region}
+
+# all parameter values come from environment variables,
+# except for the vcn parameter, which is passed in using the command-line flags.
+./get-vnics -n ${get_vnics_vcn_id}
+
+Note that you may pass multiple values to the command-line flags
+once the variables in env.sh have been assigned values.
+
+Options:
+
+Flag                          Description
+
+-cp          Specify the ocid of the compartment your vcn is in.
+-h           Show options.
+-n           Specify the ocid of the vcn whose vnic ocids you are searching for.
+-r           Specify the region identifier your vcn is in.
+EOF
+)
+
+echo -e "${options_str}\n" # in quotes to prevent field splitting in echo from eating spaces
+exit
+}
+
+handle_custom_params() {
+# first handling of parameters
+
+
+
+# if no environment variables set, then error message
+if test "${#array_env_vars[@]}" -lt 3; then
+	str_message=$(cat <<- EOF
+	\n${color_red}Error:${color_none} Environment variables are not set:
+	${color_yellow}
+	$(if [ -z "${_get_vnics_compartment_id}" ]; then echo get_vnics_compartment_id; fi; if [ -z "${_get_vnics_region}" ]; then echo get_vnics_region; fi; if [ -z "${_get_vnics_vcn_id}" ]; then echo get_vnics_vcn_id; fi)
+	${color_none}
+	Please make sure that variables are set in ${color_yellow}./env.sh${color_none}. Once these
+	variables are set, you may pass values in using command-line flags.
+	EOF
+	)
+	echo -e "${str_message}"
+	show_options
+fi
+
+# handle each parameter, then pop it off
+while test $# -gt 0; do
+	# ((count++)); echo $count # troubleshooting
+	case $1 in
+		-cp)
+			if test $# -eq 1; then
+				str_message=$(cat <<- EOF
+				\n${color_red}Error:${color_none}  No value was passed to ${color_yellow}$1${color_none} flag.
+				EOF
+				)
+				echo -e "${str_message}"
+				show_options
+			fi
+			while test $# -gt 1; do
+				oci iam compartment get --compartment-id $2 &> /dev/null; # silence output (redirect stdout and stderr to null
+				# if command successful i.e. if compartment exists and is accessible
+				if [ $? -eq 0 ]; then
+					# success
+					array_compartment_ocids+=($2)
+				else
+					case $2 in
+						-*)
+							break # break escapes from the while loop you are in
+							;;
+						*)
+							str_message=$(cat <<- EOF
+							\n${color_red}Error:${color_none}  $2: Not authorized to access compartment, or compartment not found.\n
+							EOF
+							)
+							echo -e "${str_message}"
+							exit
+					esac
+				fi
+				shift
+			done
+			shift
+			;;
+		-r)
+			if test $# -eq 1; then
+				str_message=$(cat <<- EOF
+				\n${color_red}Error:${color_none}  No value was passed to ${color_yellow}$1${color_none} flag.\n
+				EOF
+				)
+				echo -e "${str_message}"
+				show_options
+			fi
+			while test $# -gt 1; do
+				array_oci_regions+=($(oci iam region list | jq .data[].name | sed "s|\"||g"))
+				# check that region is in list of oci regions
+				if [[ " ${array_oci_regions[@]} " =~ " $2 " ]]; then
+					# success
+					array_regions+=($2)
+				elif [[ "$2" =~ ^- ]]; then # check if param is a flag
+					break
+				else
+					str_message=$(cat <<- EOF
+					\n${color_red}Error:${color_none}  ${color_yellow}$2${color_none}: Not a valid region. Valid regions are:\n
+					$(for oci_region in "${array_oci_regions[@]}"; do echo "${oci_region}"; done)
+					EOF
+					)
+					echo -e "${str_message}"
+					exit
+				fi
+				shift
+			done
+			shift
+			;;
+		-n)	
+			if test $# -eq 1; then
+				str_message=$(cat <<- EOF
+				\n${color_red}Error:${color_none}  No value was passed to ${color_yellow}$1${color_none} flag.
+				EOF
+				)
+				echo -e "${str_message}"
+				show_options
+			fi
+			while test $# -gt 1; do
+				case $2 in
+					-*)
+						break # break escapes from the while loop you are in
+						;;
+					*)
+						# assume success
+						array_vcn_ocid+=($2)
+				esac
+				shift
+			done
+			shift
+			;;
+		-h)
+			show_options
+			;;
+		*)
+			str_message=$(cat <<- EOF
+			\n${color_red}Error:${color_none} ${color_yellow}$1${color_none} is not a valid option.\n
+			EOF
+			)
+			echo -e "${str_message}"
+			show_options
+			;;
+	esac
+done
+}
+
+handle_valid_custom_params() {
+# parameters that are handled here should be valid
+
+# set values from environment variables if array is empty, i.e. if command-line flag not used
+
+# compartment
+if [ ${#compartment_ocids[@]} -eq 0 ]; then
+	array_compartment_ocids+=(${get_vnics_compartment_id})
+fi
+# region
+if [ ${#array_regions[@]} -eq 0 ]; then
+	array_regions+=(${get_vnics_region})
+fi
+# vcn
+if [ ${#array_vcn_ocid[@]} -eq 0 ]; then
+	array_vcn_ocid+=(${get_vnics_vcn_id})
+fi
+
+# build the output string
+
+# compartment
+for compartment_ocid in "${array_compartment_ocids[@]}"; do
+	str_message_build+=$(cat <<- EOF
+	\n${tab}${color_magenta}compartment:       ${compartment_ocid}
+	EOF
+	)
+	# region
+	for region in "${array_regions[@]}"; do
+		str_message_build+=$(cat <<- EOF
+		\n${tab}${tab}${color_blue}region:         ${region}
+		EOF
+		)
+		# vcn
+		for vcn_ocid in "${array_vcn_ocid[@]}"; do
+			str_message_build+=$(cat <<- EOF
+			\n${tab}${tab}${tab}${color_cyan}vcn:         ${vcn_ocid}
+			EOF
+			)
+			export vcn_id=${vcn_ocid}
+			# subnet
+			for subnet_ocid in $(oci network --region ${region} subnet list --compartment-id ${compartment_ocid} | jq '.data[] | select(."vcn-id"==env.vcn_id)'.id | sed 's/"//g'); do
+				str_message_build+=$(cat <<- EOF
+				\n${tab}${tab}${tab}${tab}${color_blue}subnet:   ${subnet_ocid}
+				EOF
+				)
+				export subnet_id=${subnet_ocid} # set subnet id
+				# get vnics whose subnet is in vcn
+				vnic_ocids+=($(oci compute --region ${region} vnic-attachment list --compartment-id ${compartment_ocid} | jq '.data[] | select(."subnet-id"==env.subnet_id)."vnic-id"' | sed 's/"//g'))
+				str_message_build+=$(cat <<- EOF
+				\n${tab}${tab}${tab}${tab}${tab}${color_green}vnics:
+				$(for vnic in ${vnic_ocids[@]}; do echo "${tab}${tab}${tab}${tab}${tab}       ${vnic}"; done)
+				EOF
+				)
+			done
+		done
+	done
+done
+echo -e "${str_message_build}"
+echo -e "${color_none}" # reset color
+}
+
+main()
+{
+init_vars
+check_dependencies
+handle_custom_params "$@"
+handle_valid_custom_params
+}
+
+main "$@"
+
+
+
+
