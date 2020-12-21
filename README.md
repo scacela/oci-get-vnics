@@ -1,6 +1,6 @@
-# get-vnics
+# oci-get-vnics
 
-get-vnics enables you to get the ocids of all vnics
+oci-get-vnics enables you to get the ocids of all vnics
 that are associated with a VCN.
 
 Instructions:
