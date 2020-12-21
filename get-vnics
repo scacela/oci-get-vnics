@@ -67,7 +67,7 @@ show_options() {
 local options_str=""
 options_str=$(cat <<- 'EOF'
 
-oci-get-vnics enables you to retrieve the unique identifiers (OCIDs) of each VNIC and its
+oci-get-vnics enables you to identify each VNIC and its
 associated compute instance, which are associated with a user-specified
 Virtual Cloud Network (VCN) on Oracle Cloud Infrastructure (OCI).
 
@@ -277,9 +277,9 @@ for compartment_ocid in "${array_compartment_ocids[@]}"; do
 				vnic_ocids+=($(oci compute --region ${region} vnic-attachment list --compartment-id ${compartment_ocid} | jq '.data[] | select(."subnet-id"==env.subnet_id) | ."vnic-id"' | sed 's/"//g'))
 				instance_ocids+=($(oci compute --region ${region} vnic-attachment list --compartment-id ${compartment_ocid} | jq '.data[] | select(."subnet-id"==env.subnet_id) | ."instance-id"' | sed 's/"//g'))
 				str_message_build+=$(cat <<- EOF
-				\n${tab}${tab}${tab}${tab}${tab}${color_none}vnic:${tab}${tab}${tab}${tab}${tab}${tab}${tab}${tab}${tab}${tab} \
-				${tab}${tab}${tab}${tab}${tab}  ${color_green}instance:${color_none}
-				$(for index in ${!vnic_ocids[@]}; do echo "${tab}${tab}${tab}${tab}${tab}${color_none}${vnic_ocids[${index}]}${tab}${color_green}${instance_ocids[${index}]}"; done)
+				\n${tab}${tab}${tab}${tab}${tab}${color_none}vnics:${tab}${tab}${tab}${tab}${tab}${tab}${tab}${tab}${tab}${tab} \
+				${tab}${tab}${tab}${tab}${tab}  ${color_green}instances:${color_none}
+				$(for index in ${!vnic_ocids[@]}; do export instance_id=${instance_ocids[${index}]}; instance_display_name=$(oci compute --region ${region} instance list --compartment-id ${compartment_ocid} | jq '.data[] | select(.id==env.instance_id) | ."display-name"' | sed 's/\"//g'); echo "${tab}${tab}${tab}${tab}${tab}${color_none}${vnic_ocids[${index}]}${tab}${color_green}${instance_id}${tab}${instance_display_name}"; done)
 				EOF
 				)
 			done
